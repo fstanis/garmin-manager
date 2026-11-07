@@ -1,8 +1,8 @@
 import type { MtpFileSystem } from 'libmtp-web';
-import { readDeviceFileRange, type MapFile } from './device.ts';
+import { canReadRanges, readDeviceFileRange, type MapFile } from './device.ts';
 import { imgHeaderLength, mapCreatedOn, mapDisplayName, parseImgHeader } from './img.ts';
 import { parseSidHeader, sidCreatedOn, sidDisplayName, sidHeaderLength } from './sid.ts';
-import { fileExtension } from './util.ts';
+import { describeError, fileExtension } from './util.ts';
 
 /** Header-derived details of a file in the device's Garmin folder; empty strings when unread or unreadable. */
 export interface MapInfo {
@@ -41,7 +41,7 @@ const headerFormats = new Map<string, HeaderFormat>([
  */
 export async function readDeviceMapInfo(fileSystem: MtpFileSystem, map: MapFile): Promise<MapInfo> {
   const format = headerFormats.get(fileExtension(map.name));
-  if (format === undefined || !fileSystem.device.supportsRangeReads) {
+  if (format === undefined || !canReadRanges(fileSystem)) {
     return emptyMapInfo;
   }
   const bytes = await readDeviceFileRange(fileSystem, map, { offset: 0, length: Math.min(format.prefixLength, map.size) });
@@ -57,7 +57,7 @@ export async function readLocalMapInfo(file: File): Promise<MapInfo> {
   try {
     return format.describe(new Uint8Array(await file.slice(0, format.prefixLength).arrayBuffer()));
   } catch (error) {
-    console.info(`[map] "${file.name}" has no readable header: ${error instanceof Error ? error.message : String(error)}`);
+    console.info(`[map] "${file.name}" has no readable header: ${describeError(error)}`);
     return emptyMapInfo;
   }
 }

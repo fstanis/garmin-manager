@@ -1,6 +1,6 @@
 import type { Category } from './device.ts';
-import { readLocalFileMetadata, type AudioMetadata } from './metadata.ts';
-import { fileExtension } from './util.ts';
+import { emptyAudioMetadata, readLocalFileMetadata, type AudioMetadata } from './metadata.ts';
+import { describeError, fileExtension } from './util.ts';
 
 export const supportedAudioExtensions = new Set(['mp4', 'm4a', 'm4b', 'mp3', 'aac']);
 
@@ -16,16 +16,8 @@ export type StagedStatus = 'verifying' | 'ready' | 'rejected' | 'uploading' | 'f
 
 export interface StagedFile {
   file: File;
-  /** Empty until a title has been read; kept on duplicate-rejected files for display. */
-  title: string;
-  /** Empty until the artist has been read; the author/podcaster for spoken audio. */
-  artist: string;
-  /** Empty until the album has been read; the book/podcast name for spoken audio. */
-  album: string;
-  /** Empty until the track number has been read; chapter/episode number for spoken audio. */
-  track: string;
-  /** Empty until the genre has been read; drives the category bucket. */
-  genre: string;
+  /** Empty until read; kept on duplicate-rejected files for display. */
+  metadata: AudioMetadata;
   status: StagedStatus;
   /** Rejection or upload-failure reason; empty otherwise. */
   reason: string;
@@ -42,11 +34,7 @@ export function hasSupportedAudioExtension(name: string): boolean {
 export function createStagedFile(file: File): StagedFile {
   return {
     file,
-    title: '',
-    artist: '',
-    album: '',
-    track: '',
-    genre: '',
+    metadata: emptyAudioMetadata,
     status: 'verifying',
     reason: '',
     category: 'Music',
@@ -64,25 +52,17 @@ export async function verifyStagedFile(
   try {
     metadata = await readLocalFileMetadata(staged.file);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return withRejection(staged, `Could not read metadata: ${reason}`);
+    return withRejection(staged, `Could not read metadata: ${describeError(error)}`);
   }
   if (metadata.title === '') {
     return withRejection(staged, 'No title metadata found');
   }
-  const verified: StagedFile = {
-    ...staged,
-    title: metadata.title,
-    artist: metadata.artist,
-    album: metadata.album,
-    track: metadata.track,
-    genre: metadata.genre,
-  };
-  const duplicatePath = findDuplicatePath(verified.title, deviceTitles) ?? deviceFileNames.get(staged.file.name.toLowerCase());
+  const verified: StagedFile = { ...staged, metadata };
+  const duplicatePath = findDuplicatePath(verified, deviceTitles, deviceFileNames);
   if (duplicatePath !== undefined) {
-    return { ...verified, status: 'rejected', reason: `Already on the device: ${duplicatePath}` };
+    return withRejection(verified, `Already on the device: ${duplicatePath}`);
   }
-  return { ...verified, category: categoryForGenre(verified.genre), status: 'ready', reason: '' };
+  return { ...verified, category: categoryForGenre(metadata.genre), status: 'ready', reason: '' };
 }
 
 /** The genre tag is the only category signal: Podcast/Audiobook genres pick their folder, anything else is Music. */
@@ -101,8 +81,8 @@ export function reverifyDuplicate(
   deviceTitles: Map<string, string>,
   deviceFileNames: Map<string, string>,
 ): StagedFile {
-  const duplicatePath = findDuplicatePath(staged.title, deviceTitles) ?? deviceFileNames.get(staged.file.name.toLowerCase());
-  if (!duplicatePath) {
+  const duplicatePath = findDuplicatePath(staged, deviceTitles, deviceFileNames);
+  if (duplicatePath === undefined) {
     return staged;
   }
   return withRejection(staged, `Already on the device: ${duplicatePath}`);
@@ -140,14 +120,19 @@ export function verifyStagedMap(staged: StagedMap, deviceMapNames: Map<string, s
     return staged;
   }
   const duplicatePath = deviceMapNames.get(staged.file.name.toLowerCase());
-  if (!duplicatePath) {
+  if (duplicatePath === undefined) {
     return staged;
   }
   return { ...staged, status: 'rejected', reason: `Already on the device: ${duplicatePath}` };
 }
 
-function findDuplicatePath(title: string, deviceTitles: Map<string, string>): string | undefined {
-  return deviceTitles.get(title.toLowerCase());
+/** Matches by title or by file name, case-insensitively. */
+function findDuplicatePath(
+  staged: StagedFile,
+  deviceTitles: Map<string, string>,
+  deviceFileNames: Map<string, string>,
+): string | undefined {
+  return deviceTitles.get(staged.metadata.title.toLowerCase()) ?? deviceFileNames.get(staged.file.name.toLowerCase());
 }
 
 function withRejection(staged: StagedFile, reason: string): StagedFile {

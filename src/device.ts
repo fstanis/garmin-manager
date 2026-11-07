@@ -12,7 +12,7 @@ import bundledWasmUrl from 'libmtp-web/dist/mtp.wasm' with { type: 'file' };
 import { fileExtension } from './util.ts';
 
 /** Sentinel folder id under which MTP lists a storage's root-level contents. */
-const ROOT_FOLDER_ID = 0xffffffff;
+const rootFolderId = 0xffffffff;
 
 export type Category = 'Music' | 'Podcasts' | 'Audiobooks';
 
@@ -81,7 +81,7 @@ export interface DeviceFile {
   name: string;
   size: number;
   path: string;
-  folderName: Category;
+  category: Category;
 }
 
 export interface StoredFile {
@@ -129,7 +129,7 @@ export interface DeviceScan {
 export interface UploadRequest {
   category: Category;
   file: File;
-  onProgress?: (uploadedBytes: number) => void;
+  onProgress: (uploadedBytes: number) => void;
 }
 
 export interface UploadResult {
@@ -241,10 +241,10 @@ export async function scanDevice(fileSystem: MtpFileSystem): Promise<DeviceScan>
       uploads.set(category, folder);
     }
     maps.push(...storageScan.maps);
-    if (storageScan.anchor) {
+    if (storageScan.anchor !== null) {
       anchors.push(storageScan.anchor);
     }
-    mapFolder = mapFolder ?? storageScan.mapFolder ?? null;
+    mapFolder ??= storageScan.mapFolder;
     searchIndexFolder ??= storageScan.searchIndexFolder;
     descriptor ??= storageScan.descriptor;
   }
@@ -255,7 +255,7 @@ export async function scanDevice(fileSystem: MtpFileSystem): Promise<DeviceScan>
     descriptor,
     folders: {
       uploads,
-      anchor: anchors[0] ?? { storageId: primaryStorageId, folderId: ROOT_FOLDER_ID, folderPath: '' },
+      anchor: anchors[0] ?? { storageId: primaryStorageId, folderId: rootFolderId, folderPath: '' },
       mapFolder,
       searchIndexFolder,
     },
@@ -273,7 +273,7 @@ export async function uploadFile(
 
 export interface MapUploadRequest {
   file: File;
-  onProgress?: (uploadedBytes: number) => void;
+  onProgress: (uploadedBytes: number) => void;
 }
 
 export interface MapUploadResult extends UploadResult {
@@ -301,15 +301,35 @@ export async function deleteDeviceFile(fileSystem: MtpFileSystem, file: { id: nu
   await withTransferRetry(() => fileSystem.session.deleteObject(file.id, file.name));
 }
 
-/** One range read, retried on transient transfer errors; the device must support range reads. */
-export async function readDeviceFileRange(fileSystem: MtpFileSystem, file: StoredFile, range: { offset: number; length: number }): Promise<Uint8Array> {
-  return withTransferRetry(() =>
-    withTimeout(
-      () => fileSystem.session.readFileRange(file, range.offset, range.length),
-      readTimeoutMs,
-      () => new ReadStalledError(file.path),
-    ),
+export interface ByteRange {
+  offset: number;
+  length: number;
+}
+
+export function deviceModelName(fileSystem: MtpFileSystem): string {
+  return fileSystem.device.modelName;
+}
+
+export function canReadRanges(fileSystem: MtpFileSystem): boolean {
+  return fileSystem.device.supportsRangeReads;
+}
+
+/** Retried on transient transfer errors; the device must support range reads. */
+export async function readDeviceFileRange(fileSystem: MtpFileSystem, file: StoredFile, range: ByteRange): Promise<Uint8Array> {
+  return withTransferRetry(() => readDeviceFileRangeOnce(fileSystem, file, range));
+}
+
+/** Not retried, for callers that retry a larger operation; fails with ReadStalledError after readTimeoutMs. */
+export function readDeviceFileRangeOnce(fileSystem: MtpFileSystem, file: StoredFile, range: ByteRange): Promise<Uint8Array> {
+  return withTimeout(
+    () => fileSystem.session.readFileRange(file, range.offset, range.length),
+    readTimeoutMs,
+    () => new ReadStalledError(file.path),
   );
+}
+
+export function openDeviceFileStream(fileSystem: MtpFileSystem, file: StoredFile): Promise<ReadableStream<Uint8Array>> {
+  return fileSystem.session.readFileStream(file);
 }
 
 /** Buffers the whole file in memory, so only use it for small files; the whole read must finish within readTimeoutMs. */
@@ -327,7 +347,7 @@ async function writeFileToFolder(
   fileSystem: MtpFileSystem,
   folder: UploadFolder,
   file: File,
-  onProgress?: (uploadedBytes: number) => void,
+  onProgress: (uploadedBytes: number) => void,
 ): Promise<UploadResult> {
   const objectId = await withTransferRetry(() =>
     fileSystem.session.writeFileStream(
@@ -343,18 +363,15 @@ async function writeFileToFolder(
 
 async function createMapFolder(fileSystem: MtpFileSystem, anchor: UploadFolder): Promise<UploadFolder> {
   const folderId = await withTransferRetry(() =>
-    fileSystem.session.createFolder(anchor.storageId, ROOT_FOLDER_ID, 'Garmin'),
+    fileSystem.session.createFolder(anchor.storageId, rootFolderId, 'Garmin'),
   );
   return { storageId: anchor.storageId, folderId, folderPath: 'Garmin' };
 }
 
 function countBytes(
   stream: ReadableStream<Uint8Array>,
-  onProgress?: (uploadedBytes: number) => void,
+  onProgress: (uploadedBytes: number) => void,
 ): ReadableStream<Uint8Array> {
-  if (!onProgress) {
-    return stream;
-  }
   let uploadedBytes = 0;
   return stream.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
@@ -378,21 +395,23 @@ interface StorageScan {
   files: DeviceFile[];
   uploads: Map<Category, UploadFolder>;
   maps: MapFile[];
-  anchor?: UploadFolder;
-  mapFolder?: UploadFolder;
+  anchor: UploadFolder | null;
+  mapFolder: UploadFolder | null;
   searchIndexFolder: UploadFolder | null;
   descriptor: StoredFile | null;
 }
 
-function readFolderEntries(storage: DeviceStorage, folderId: number) {
-  return withTransferRetry(() => storage.fileSystem.session.listChildren(storage.storageId, folderId));
-}
-
-type FolderEntry = Awaited<ReturnType<typeof readFolderEntries>>[number];
-
 async function scanStorage(storage: DeviceStorage): Promise<StorageScan> {
-  const scan: StorageScan = { files: [], uploads: new Map(), maps: [], searchIndexFolder: null, descriptor: null };
-  const searchQueue: SearchFolder[] = [{ folderId: ROOT_FOLDER_ID, path: '', depth: 0 }];
+  const scan: StorageScan = {
+    files: [],
+    uploads: new Map(),
+    maps: [],
+    anchor: null,
+    mapFolder: null,
+    searchIndexFolder: null,
+    descriptor: null,
+  };
+  const searchQueue: SearchFolder[] = [{ folderId: rootFolderId, path: '', depth: 0 }];
   while (searchQueue.length > 0) {
     const searchFolder = searchQueue.shift();
     if (!searchFolder) {
@@ -429,6 +448,12 @@ async function scanStorage(storage: DeviceStorage): Promise<StorageScan> {
   }
   return scan;
 }
+
+function readFolderEntries(storage: DeviceStorage, folderId: number) {
+  return withTransferRetry(() => storage.fileSystem.session.listChildren(storage.storageId, folderId));
+}
+
+type FolderEntry = Awaited<ReturnType<typeof readFolderEntries>>[number];
 
 interface GarminFiles {
   maps: MapFile[];
@@ -499,7 +524,7 @@ async function collectAllFiles(storage: DeviceStorage, folder: UploadFolder, cat
       name: entry.name,
       size: entry.size,
       path: childPath,
-      folderName: category,
+      category,
     });
   }
   return files;

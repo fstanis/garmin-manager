@@ -4,10 +4,13 @@ import type { DeviceFile, DeviceFolderIndex, MapFile, StorageSpace, StoredFile }
 import type { AudioMetadata } from './metadata.ts';
 import type { StagedFile, StagedMap } from './staging.ts';
 
+export type ReadStatus = 'pending' | 'read' | 'failed' | 'skipped';
+
 export interface FileRow {
   file: DeviceFile;
-  metadata: AudioMetadata | null;
-  metadataStatus: 'pending' | 'read' | 'failed' | 'skipped';
+  /** Empty until metadataStatus is 'read'. */
+  metadata: AudioMetadata;
+  metadataStatus: ReadStatus;
 }
 
 export interface MapRow {
@@ -16,7 +19,7 @@ export interface MapRow {
   displayName: string;
   /** Creation date from the device header; empty while unread or when unreadable. */
   createdOn: string;
-  headerStatus: 'pending' | 'read' | 'failed';
+  headerStatus: Exclude<ReadStatus, 'skipped'>;
 }
 
 export const statusMessage = signal('');

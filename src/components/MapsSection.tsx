@@ -4,6 +4,7 @@ import { handleMapGroupDelete, handleMapUpload } from '../flows.ts';
 import { groupMapRows, type MapGroup } from '../map-groups.ts';
 import { formatBytes, orDash, pluralize } from '../util.ts';
 import type { StagedMap } from '../staging.ts';
+import { describeReadCell, joinClassNames } from './read-cell.ts';
 import { UploadControls } from './UploadControls.tsx';
 
 export function MapsSection() {
@@ -58,26 +59,15 @@ function DeviceMapGroup({ group }: { group: MapGroup }) {
 }
 
 function DeviceMapRow({ row, isRelated, children }: { row: MapRow; isRelated: boolean; children?: ComponentChildren }) {
-  const header = describeMapHeader(row);
-  const nameClass = [header.cellClass, isRelated ? 'related' : undefined].filter(Boolean).join(' ');
+  const nameCell = describeReadCell(row.displayName, row.headerStatus);
   return (
     <tr title={row.map.path}>
-      <td class={nameClass}>{orDash(header.text)}</td>
+      <td class={joinClassNames(nameCell.className, isRelated ? 'related' : '')}>{nameCell.text}</td>
       <td class="num">{orDash(row.createdOn)}</td>
       <td class="num muted">{formatBytes(row.map.size)}</td>
       <td class="action">{children}</td>
     </tr>
   );
-}
-
-function describeMapHeader(row: MapRow): { text: string; cellClass: string | undefined } {
-  if (row.headerStatus === 'pending') {
-    return { text: 'reading…', cellClass: 'cell-pending' };
-  }
-  if (row.headerStatus === 'failed') {
-    return { text: 'read failed', cellClass: 'cell-failed' };
-  }
-  return { text: row.displayName ?? '', cellClass: undefined };
 }
 
 function StagedMapRow({ staged }: { staged: StagedMap }) {

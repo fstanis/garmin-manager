@@ -8,12 +8,19 @@ export interface ImgHeader {
   creationDay: number;
 }
 
+export class ImgFormatError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImgFormatError';
+  }
+}
+
 /** Map files are gigabyte-scale; only this prefix — through the end of the name field — is ever read. */
 export const imgHeaderLength = 0x84;
 
 export function parseImgHeader(bytes: Uint8Array): ImgHeader {
   if (bytes.length < imgHeaderLength) {
-    throw new Error(`Buffer size (${bytes.length} bytes) is smaller than required header size (${imgHeaderLength} bytes).`);
+    throw new ImgFormatError(`Buffer size (${bytes.length} bytes) is smaller than required header size (${imgHeaderLength} bytes).`);
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return {

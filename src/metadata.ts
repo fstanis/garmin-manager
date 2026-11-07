@@ -1,7 +1,16 @@
 import type { MtpFileSystem } from 'libmtp-web';
 import { Reader } from 'jsmediatags';
 import MediaFileReader from 'jsmediatags/build2/MediaFileReader';
-import { ReadStalledError, readTimeoutMs, withTimeout, withTransferRetry, type DeviceFile } from './device.ts';
+import {
+  canReadRanges,
+  openDeviceFileStream,
+  readDeviceFileRangeOnce,
+  ReadStalledError,
+  readTimeoutMs,
+  withTimeout,
+  withTransferRetry,
+  type DeviceFile,
+} from './device.ts';
 import { formatBytes } from './util.ts';
 
 /** Devices without range reads buffer the whole file; beyond this the metadata pass is skipped. */
@@ -16,7 +25,9 @@ export interface AudioMetadata {
   genre: string;
 }
 
-/** Random-access byte source; offsets are absolute, length is exclusive-end. */
+export const emptyAudioMetadata: AudioMetadata = { title: '', artist: '', album: '', track: '', genre: '' };
+
+/** Random-access byte source; offsets are absolute. */
 export interface RangeSource {
   size: number;
   readRange(offset: number, length: number): Promise<Uint8Array>;
@@ -42,11 +53,11 @@ export async function readDeviceFileMetadata(
   file: DeviceFile,
 ): Promise<AudioMetadata> {
   return withTransferRetry(async () => {
-    const source = fileSystem.device.supportsRangeReads
+    const source = canReadRanges(fileSystem)
       ? deviceRangeSource(fileSystem, file)
       : await bufferedRangeSource(fileSystem, file);
-    if (!source) {
-      return { title: '', artist: '', album: '', track: '', genre: '' };
+    if (source === null) {
+      return emptyAudioMetadata;
     }
     return readMetadata(source, file.path);
   });
@@ -56,11 +67,7 @@ function deviceRangeSource(fileSystem: MtpFileSystem, file: DeviceFile): RangeSo
   return {
     size: file.size,
     readRange: (offset, length) =>
-      withTimeout(
-        () => fileSystem.session.readFileRange(file, offset, length),
-        readTimeoutMs,
-        () => new ReadStalledError(file.path),
-      ).catch((error: unknown) => {
+      readDeviceFileRangeOnce(fileSystem, file, { offset, length }).catch((error: unknown) => {
         throw new RangeReadFailureError(error);
       }),
   };
@@ -74,7 +81,7 @@ async function bufferedRangeSource(
     console.info(`[meta] "${file.path}" skipped: ${formatBytes(file.size)} exceeds the ${formatBytes(bufferedReadCapBytes)} buffered-read limit on this device`);
     return null;
   }
-  const stream = await fileSystem.session.readFileStream(file);
+  const stream = await openDeviceFileStream(fileSystem, file);
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   try {
@@ -90,7 +97,9 @@ async function bufferedRangeSource(
       chunks.push(value);
     }
   } catch (error) {
-    void reader.cancel().catch(() => undefined);
+    void reader.cancel().catch((cancelError: unknown) => {
+      console.warn(`[meta] cancelling the read of "${file.path}" failed:`, cancelError);
+    });
     throw new RangeReadFailureError(error);
   }
   const contents = new Uint8Array(file.size);

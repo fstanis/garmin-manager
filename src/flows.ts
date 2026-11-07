@@ -3,6 +3,7 @@ import {
   closeQuietly,
   connectToDevice,
   deleteDeviceFile,
+  deviceModelName,
   deviceScanTimeoutMs,
   hasMapFileExtension,
   hasMapImageExtension,
@@ -18,6 +19,7 @@ import {
   type DeviceFile,
   type DeviceFolderIndex,
   type DeviceScan,
+  type MapUploadResult,
   type StoredFile,
   type UploadResult,
 } from './device.ts';
@@ -32,7 +34,7 @@ import {
   type StagedFile,
   type StagedMap,
 } from './staging.ts';
-import { readDeviceFileMetadata } from './metadata.ts';
+import { emptyAudioMetadata, readDeviceFileMetadata } from './metadata.ts';
 import type { MapGroup } from './map-groups.ts';
 import { activationDisplayName, fileStem, isActivationFile, readDeviceMapInfo, readLocalMapInfo } from './map-info.ts';
 import { describeError, isDeviceSelectionCancelled } from './util.ts';
@@ -92,25 +94,22 @@ export function routeFiles(files: File[]): void {
 }
 
 export function handleConnectToggle(): Promise<void> {
-  if (connection.value !== null) {
-    return handleDisconnect();
+  const activeFileSystem = connection.value;
+  if (activeFileSystem !== null) {
+    return handleDisconnect(activeFileSystem);
   }
   return handleConnect();
 }
 
 async function handleConnect(): Promise<void> {
-  const previousFileSystem = connection.value;
   isBusy.value = true;
   isDisconnecting.value = false;
   clearDeviceState();
   setStatus('Waiting for device selection…');
   try {
-    if (previousFileSystem) {
-      await closeQuietly(previousFileSystem);
-    }
     const fileSystem = await connectToDevice();
     connection.value = fileSystem;
-    deviceName.value = fileSystem.device.modelName;
+    deviceName.value = deviceModelName(fileSystem);
     storageSpace.value = openedStorageSpace(fileSystem);
     await displayDeviceFiles(fileSystem);
   } catch (error) {
@@ -127,22 +126,20 @@ async function handleConnect(): Promise<void> {
   }
 }
 
-async function handleDisconnect(): Promise<void> {
-  const activeFileSystem = connection.value;
-  if (!activeFileSystem) {
-    return;
-  }
+const cleanCloseStatus = { message: 'Device session closed — safe to unplug the watch.', kind: 'none' } as const;
+const uncleanCloseStatus = {
+  message: 'Device session did not close cleanly. Wait a few seconds before unplugging the watch.',
+  kind: 'notice',
+} as const;
+
+async function handleDisconnect(activeFileSystem: MtpFileSystem): Promise<void> {
   isBusy.value = true;
   isDisconnecting.value = true;
   clearDeviceState();
   setStatus('Closing the device session…');
   const isClosedCleanly = await closeQuietly(activeFileSystem);
-  setStatus(
-    isClosedCleanly
-      ? 'Device session closed — safe to unplug the watch.'
-      : 'Device session did not close cleanly. Wait a few seconds before unplugging the watch.',
-    isClosedCleanly ? 'none' : 'notice',
-  );
+  const closeStatus = isClosedCleanly ? cleanCloseStatus : uncleanCloseStatus;
+  setStatus(closeStatus.message, closeStatus.kind);
   isBusy.value = false;
 }
 
@@ -166,7 +163,8 @@ function isMtpInterfaceMissing(error: unknown): boolean {
 }
 
 async function displayDeviceFiles(activeFileSystem: MtpFileSystem): Promise<void> {
-  setStatus(`Connected to ${activeFileSystem.device.modelName}. Listing Music, Podcasts, Audiobooks and Garmin…`);
+  const modelName = deviceModelName(activeFileSystem);
+  setStatus(`Connected to ${modelName}. Listing Music, Podcasts, Audiobooks and Garmin…`);
   let scan: DeviceScan;
   try {
     scan = await withTimeout(
@@ -180,11 +178,10 @@ async function displayDeviceFiles(activeFileSystem: MtpFileSystem): Promise<void
   }
   folders.value = scan.folders;
   deviceDescriptor.value = scan.descriptor;
-  const files = [...scan.files];
-  files.sort((left, right) => left.path.localeCompare(right.path));
+  const files = scan.files.toSorted((left, right) => left.path.localeCompare(right.path));
   deviceFiles.value = files.map((file) => ({
     file,
-    metadata: null,
+    metadata: emptyAudioMetadata,
     metadataStatus: hasSupportedAudioExtension(file.name) ? 'pending' : 'skipped',
   }));
   const maps = scan.maps;
@@ -205,7 +202,7 @@ async function displayDeviceFiles(activeFileSystem: MtpFileSystem): Promise<void
   reverifyStagedFiles();
   reverifyStagedMaps();
   clearScanProgress();
-  setStatus(`Done: ${files.length} file(s), ${maps.length} map(s) from ${activeFileSystem.device.modelName}.`);
+  setStatus(`Done: ${files.length} file(s), ${maps.length} map(s) from ${modelName}.`);
 }
 
 async function resolveTitles(activeFileSystem: MtpFileSystem, rows: FileRow[]): Promise<boolean> {
@@ -259,14 +256,6 @@ interface RowReadPass<TRow> {
   failureLabel: string;
 }
 
-function markRemainingRowsFailed<TRow>(rows: TRow[], failedAtIndex: number, pass: RowReadPass<TRow>): void {
-  for (const [index, row] of rows.entries()) {
-    if (index > failedAtIndex && !pass.isSkipped(row)) {
-      pass.markFailed(row);
-    }
-  }
-}
-
 /**
  * Sequential read pass shared by the title and map-header resolves. Returns
  * true when a stalled or disconnected read abandoned the session, false when
@@ -309,6 +298,14 @@ async function resolveRowPass<TRow>(
   return false;
 }
 
+function markRemainingRowsFailed<TRow>(rows: TRow[], failedAtIndex: number, pass: RowReadPass<TRow>): void {
+  for (const [index, row] of rows.entries()) {
+    if (index > failedAtIndex && !pass.isSkipped(row)) {
+      pass.markFailed(row);
+    }
+  }
+}
+
 function describeDeviceError(error: unknown): string {
   return error instanceof MtpDeviceDisconnectedError ? 'the device was unplugged' : describeError(error);
 }
@@ -319,7 +316,9 @@ function abandonSession(activeFileSystem: MtpFileSystem, error: unknown, activit
     return;
   }
   clearDeviceState();
-  void activeFileSystem.abort();
+  activeFileSystem.abort().catch((abortError: unknown) => {
+    console.warn('[mtp] aborting the stalled session failed:', abortError);
+  });
   setStatus(
     `Device stopped responding while reading ${activity} (${describeDeviceError(error)}). ` +
       'Connect again to recover; no replug should be needed.',
@@ -479,113 +478,95 @@ function reverifyStaged<TRow extends { file: File; status: string; reason: strin
   return retained;
 }
 
-/** Connection and scanned folder index an upload needs; null before a device scan completes. */
 interface UploadContext {
   fileSystem: MtpFileSystem;
   folders: DeviceFolderIndex;
 }
 
-function activeUploadContext(): UploadContext | null {
-  const fileSystem = connection.value;
-  const activeFolders = folders.value;
-  if (fileSystem === null || activeFolders === null) {
-    return null;
-  }
-  return { fileSystem, folders: activeFolders };
-}
-
 interface StagedUploadPlan<TResult extends UploadResult> {
-  upload(onProgress: (uploadedBytes: number) => void): Promise<TResult>;
+  fileName: string;
+  start(): void;
+  upload(context: UploadContext, onProgress: (uploadedBytes: number) => void): Promise<TResult>;
   reportProgress(uploadedBytes: number): void;
-  complete(result: TResult): void;
+  complete(result: TResult, context: UploadContext): void;
   fail(reason: string): void;
 }
 
-async function runStagedUpload<TResult extends UploadResult>(
-  fileSystem: MtpFileSystem,
-  fileName: string,
-  plan: StagedUploadPlan<TResult>,
-): Promise<void> {
-  try {
-    const result = await plan.upload(plan.reportProgress);
-    plan.complete(result);
-    setStatus(`Added ${fileName} to ${result.path}.`);
-    await refreshStorageSpace(fileSystem);
-  } catch (error) {
-    const reason = describeDeviceError(error);
-    plan.fail(reason);
-    setStatus(`Upload of ${fileName} failed: ${reason}`, 'error');
-  }
-}
-
 export async function handleUpload(staged: StagedFile): Promise<void> {
-  const context = activeUploadContext();
-  if (context === null) {
-    setStatus('Connect and scan a device before uploading.', 'error');
-    return;
-  }
-  updateStaged(staged, { status: 'uploading', reason: '', uploadedBytes: 0 });
-  await runStagedUpload(context.fileSystem, staged.file.name, {
-    upload: (onProgress) => uploadFile(context.fileSystem, context.folders, {
+  await runStagedUpload({
+    fileName: staged.file.name,
+    start: () => updateStaged(staged, { status: 'uploading', reason: '', uploadedBytes: 0 }),
+    upload: (context, onProgress) => uploadFile(context.fileSystem, context.folders, {
       category: staged.category,
       file: staged.file,
       onProgress,
     }),
     reportProgress: (uploadedBytes) => updateStagedThrottled(staged, { uploadedBytes }),
-    complete: (result) => {
-      const uploads = new Map(context.folders.uploads);
-      uploads.set(staged.category, result.folder);
-      folders.value = { ...context.folders, uploads };
-      if (staged.title !== '') {
-        rememberDeviceTitle(staged.title, result.path);
-      }
-      stagedFiles.value = stagedFiles.value.filter((candidate) => candidate.file !== staged.file);
-      deviceFiles.value = [...deviceFiles.value, {
-        file: {
-          id: result.objectId,
-          name: staged.file.name,
-          size: staged.file.size,
-          path: result.path,
-          folderName: staged.category,
-        },
-        metadata: {
-          title: staged.title,
-          artist: staged.artist,
-          album: staged.album,
-          track: staged.track,
-          genre: staged.genre,
-        },
-        metadataStatus: 'read',
-      }];
-    },
+    complete: (result, context) => recordUploadedFile(staged, result, context.folders),
     fail: (reason) => updateStaged(staged, { status: 'failed', reason }),
   });
 }
 
 export async function handleMapUpload(staged: StagedMap): Promise<void> {
-  const context = activeUploadContext();
-  if (context === null) {
-    setStatus('Connect and scan a device before uploading.', 'error');
-    return;
-  }
-  updateStagedMap(staged, { status: 'uploading', reason: '', uploadedBytes: 0 });
-  await runStagedUpload(context.fileSystem, staged.file.name, {
-    upload: (onProgress) => uploadMapFile(context.fileSystem, context.folders, {
+  await runStagedUpload({
+    fileName: staged.file.name,
+    start: () => updateStagedMap(staged, { status: 'uploading', reason: '', uploadedBytes: 0 }),
+    upload: (context, onProgress) => uploadMapFile(context.fileSystem, context.folders, {
       file: staged.file,
       onProgress,
     }),
     reportProgress: (uploadedBytes) => updateStagedMapThrottled(staged, { uploadedBytes }),
-    complete: (result) => {
-      folders.value = result.folders;
-      stagedMaps.value = stagedMaps.value.filter((candidate) => candidate.file !== staged.file);
-      deviceMaps.value = [...deviceMaps.value, {
-        map: { id: result.objectId, name: staged.file.name, size: staged.file.size, path: result.path },
-        displayName: staged.displayName,
-        createdOn: staged.createdOn,
-        headerStatus: 'read',
-      }];
-      labelActivationFiles();
-    },
+    complete: (result) => recordUploadedMap(staged, result),
     fail: (reason) => updateStagedMap(staged, { status: 'failed', reason }),
   });
+}
+
+async function runStagedUpload<TResult extends UploadResult>(plan: StagedUploadPlan<TResult>): Promise<void> {
+  const fileSystem = connection.value;
+  const activeFolders = folders.value;
+  if (fileSystem === null || activeFolders === null) {
+    setStatus('Connect and scan a device before uploading.', 'error');
+    return;
+  }
+  const context: UploadContext = { fileSystem, folders: activeFolders };
+  plan.start();
+  try {
+    const result = await plan.upload(context, plan.reportProgress);
+    plan.complete(result, context);
+    setStatus(`Added ${plan.fileName} to ${result.path}.`);
+    await refreshStorageSpace(fileSystem);
+  } catch (error) {
+    const reason = describeDeviceError(error);
+    plan.fail(reason);
+    setStatus(`Upload of ${plan.fileName} failed: ${reason}`, 'error');
+  }
+}
+
+function recordUploadedFile(staged: StagedFile, result: UploadResult, uploadFolders: DeviceFolderIndex): void {
+  const uploads = new Map(uploadFolders.uploads).set(staged.category, result.folder);
+  folders.value = { ...uploadFolders, uploads };
+  if (staged.metadata.title !== '') {
+    rememberDeviceTitle(staged.metadata.title, result.path);
+  }
+  stagedFiles.value = stagedFiles.value.filter((candidate) => candidate.file !== staged.file);
+  const file: DeviceFile = {
+    id: result.objectId,
+    name: staged.file.name,
+    size: staged.file.size,
+    path: result.path,
+    category: staged.category,
+  };
+  deviceFiles.value = [...deviceFiles.value, { file, metadata: staged.metadata, metadataStatus: 'read' }];
+}
+
+function recordUploadedMap(staged: StagedMap, result: MapUploadResult): void {
+  folders.value = result.folders;
+  stagedMaps.value = stagedMaps.value.filter((candidate) => candidate.file !== staged.file);
+  deviceMaps.value = [...deviceMaps.value, {
+    map: { id: result.objectId, name: staged.file.name, size: staged.file.size, path: result.path },
+    displayName: staged.displayName,
+    createdOn: staged.createdOn,
+    headerStatus: 'read',
+  }];
+  labelActivationFiles();
 }

@@ -1,5 +1,4 @@
 import type { StagedFile, StagedMap } from '../staging.ts';
-import { connection } from '../state.ts';
 import { progressPercent } from '../util.ts';
 
 type StagedStatus = StagedFile['status'] | StagedMap['status'];
@@ -24,7 +23,7 @@ export function UploadControls({ status, uploadedBytes, totalBytes, reason, onUp
   }
   return (
     <div>
-      <button disabled={connection.value === null} onClick={onUpload}>
+      <button onClick={onUpload}>
         {status === 'failed' ? 'Retry' : 'Add'}
       </button>
       {status === 'failed' && reason !== '' && <div class="failure">{reason}</div>}

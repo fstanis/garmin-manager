@@ -1,6 +1,10 @@
 /* The patched hiq dependency strips webkit file-upload-button rules that bun's CSS parser rejects. */
 @import 'hiq/dist/hiq.css';
 
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --hiq-max-container-width: 72rem;
   --hiq-font-size-1: 1.75rem;
