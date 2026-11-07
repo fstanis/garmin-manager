@@ -1,0 +1,291 @@
+/* The patched hiq dependency strips webkit file-upload-button rules that bun's CSS parser rejects. */
+@import 'hiq/dist/hiq.css';
+
+:root {
+  --hiq-max-container-width: 72rem;
+  --hiq-font-size-1: 1.75rem;
+}
+
+.container {
+  margin-inline: auto;
+  padding-block: 3rem 4rem;
+}
+
+.app-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.app-header h1 {
+  margin: 0;
+}
+
+.tagline {
+  margin: 0.25rem 0 0;
+}
+
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.source-link:hover {
+  color: var(--hiq-text-color, hsl(220, 10%, 10%));
+}
+
+.icon {
+  width: 1.1em;
+  height: 1.1em;
+  fill: currentColor;
+}
+
+.muted {
+  color: var(--hiq-color-gray-5, hsl(220, 10%, 60%));
+}
+
+#app > section + section {
+  margin-top: 3rem;
+}
+
+.connect-button {
+  --button-height: 3rem;
+  --button-horizontal-padding: 2.5rem;
+  display: block;
+  margin-inline: auto;
+  font-size: 1.125rem;
+}
+
+.drop-hint {
+  margin: 0.75rem 0 1rem;
+  font-size: 0.875rem;
+}
+
+.status {
+  margin: 1.25rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 0.25rem solid var(--hiq-color-gray-5, hsl(0, 0%, 60%));
+  background-color: var(--hiq-color-gray-7, hsl(220, 10%, 95%));
+}
+
+.status p {
+  margin: 0;
+}
+
+.status.notice {
+  border-left-color: var(--hiq-color-primary, hsl(210, 100%, 50%));
+  background-color: hsl(210 100% 50% / 0.06);
+}
+
+.status.error {
+  border-left-color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  background-color: hsl(331 93% 45% / 0.06);
+}
+
+.status progress {
+  display: block;
+  height: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.warning {
+  padding: 0.75rem 1rem;
+  border-left: 0.25rem solid var(--hiq-color-warning, hsl(40, 100%, 50%));
+  background-color: hsl(40 100% 50% / 0.08);
+}
+
+.help {
+  max-width: 46rem;
+  font-size: 0.875rem;
+}
+
+.command {
+  --pre-padding-vertical: 0.75rem;
+  --pre-padding-horizontal: 1rem;
+}
+
+.storage {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: -0.25rem 0 1rem;
+  font-size: 0.875rem;
+}
+
+.storage meter {
+  flex: 0 1 16rem;
+  height: 0.6rem;
+}
+
+.device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.device > section + section {
+  margin-top: 2.25rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.section-meta {
+  font-size: 0.875rem;
+}
+
+.empty {
+  margin: 0.5rem 0 0;
+  font-style: italic;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+th.expand {
+  width: 100%;
+}
+
+th.num,
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+th.action,
+td.action {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+td.cell-pending {
+  color: var(--hiq-color-gray-5, hsl(220, 10%, 60%));
+  font-style: italic;
+}
+
+td.cell-failed {
+  color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+}
+
+tbody tr:hover > td {
+  background-color: hsl(220 10% 50% / 0.06);
+}
+
+tbody.staged > tr > td {
+  background-color: hsl(210 100% 50% / 0.05);
+}
+
+tbody.staged > tr:hover > td {
+  background-color: hsl(210 100% 50% / 0.1);
+}
+
+tbody.staged > tr.failed > td {
+  background-color: hsl(331 93% 45% / 0.06);
+}
+
+.upload {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 11rem;
+}
+
+.upload progress {
+  flex: 1;
+  height: 0.6rem;
+}
+
+.upload-percent {
+  min-width: 2.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--hiq-color-gray-4, hsl(220, 10%, 40%));
+}
+
+.failure {
+  max-width: 16rem;
+  margin: 0.4rem 0 0;
+  color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  font-size: 0.75rem;
+  white-space: normal;
+}
+
+.button-outline {
+  --button-border-color: var(--hiq-color-gray-4, hsl(220, 10%, 40%));
+  --button-background-color: transparent;
+  --button-text-color: var(--hiq-text-color, hsl(220, 10%, 10%));
+  --button-hover-border-color: var(--hiq-color-gray-3, hsl(220, 10%, 25%));
+  --button-hover-background-color: transparent;
+  --button-hover-text-color: var(--hiq-text-color, hsl(220, 10%, 10%));
+  --button-active-border-color: var(--hiq-color-gray-3, hsl(220, 10%, 25%));
+  --button-active-background-color: transparent;
+  --button-active-text-color: var(--hiq-text-color, hsl(220, 10%, 10%));
+}
+
+.button-danger {
+  --button-border-color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  --button-background-color: transparent;
+  --button-text-color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  --button-hover-border-color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  --button-hover-background-color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  --button-hover-text-color: white;
+  --button-active-border-color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  --button-active-background-color: var(--hiq-color-danger, hsl(331, 93%, 45%));
+  --button-active-text-color: white;
+}
+
+.dropzone {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: hsl(220 10% 100% / 0.8);
+  pointer-events: none;
+}
+
+.dropzone-panel {
+  padding: 3rem 4rem;
+  border: 0.3rem dashed var(--hiq-color-primary, hsl(210, 100%, 50%));
+  border-radius: 0.8rem;
+  background-color: white;
+  color: var(--hiq-color-primary, hsl(210, 100%, 50%));
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+tbody.map-group > tr + tr > td {
+  border-top-color: transparent;
+}
+
+td.related {
+  padding-left: 1.75rem;
+  color: var(--hiq-color-gray-4, hsl(220, 10%, 40%));
+}
+
+.app-footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--hiq-color-gray-6, hsl(220, 10%, 80%));
+  font-size: 0.875rem;
+}
+
+.app-footer p {
+  margin: 0 0 0.75rem;
+}
+
+.app-footer .disclaimer {
+  font-size: 0.75rem;
+}
