@@ -293,3 +293,11 @@ td.related {
 .app-footer .disclaimer {
   font-size: 0.75rem;
 }
+
+.status-help {
+  margin-top: 0.75rem;
+}
+
+.status-help ol {
+  margin: 0.75rem 0 0;
+}

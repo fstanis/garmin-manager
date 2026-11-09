@@ -1,5 +1,6 @@
 import { handleConnectToggle } from '../flows.ts';
-import { connection, isBusy, isDisconnecting, scanProgress, statusClassName, statusMessage } from '../state.ts';
+import { connection, isBusy, isDisconnecting, scanProgress, statusClassName, statusHelpTopic, statusMessage } from '../state.ts';
+import { StatusHelp } from './StatusHelp.tsx';
 
 export function ConnectSection() {
   let buttonLabel = 'Connect device';
@@ -7,6 +8,7 @@ export function ConnectSection() {
     buttonLabel = isDisconnecting.value ? 'Disconnecting…' : 'Connecting…';
   }
   const progress = scanProgress.value;
+  const helpTopic = statusHelpTopic.value;
   return (
     <section>
       {connection.value === null && (
@@ -25,6 +27,7 @@ export function ConnectSection() {
             ? <progress value={progress.completed} max={progress.total} />
             : <progress aria-hidden="true" />
           )}
+          {helpTopic !== 'none' && <StatusHelp key={statusMessage.value} topic={helpTopic} />}
         </div>
       )}
     </section>

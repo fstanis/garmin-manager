@@ -53,6 +53,7 @@ import {
   isBusy,
   isDisconnecting,
   rememberDeviceTitle,
+  setErrorStatusWithHelp,
   setFileRow,
   setMapRow,
   setScanProgress,
@@ -116,6 +117,8 @@ async function handleConnect(): Promise<void> {
     clearDeviceState();
     if (isMtpInterfaceMissing(error)) {
       setStatus('Device is not in MTP mode — try again in a few seconds.', 'error');
+    } else if (isInterfaceClaimedElsewhere(error)) {
+      setErrorStatusWithHelp(describeError(error), 'device-busy');
     } else if (isDeviceSelectionCancelled(error)) {
       setStatus('No device was selected.');
     } else {
@@ -160,6 +163,10 @@ function clearDeviceState(): void {
 
 function isMtpInterfaceMissing(error: unknown): boolean {
   return error instanceof Error && error.message.includes('none presented an MTP interface');
+}
+
+function isInterfaceClaimedElsewhere(error: unknown): boolean {
+  return error instanceof Error && /claimInterface\(\d+\) failed/.test(error.message);
 }
 
 async function displayDeviceFiles(activeFileSystem: MtpFileSystem): Promise<void> {

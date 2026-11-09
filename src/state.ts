@@ -22,7 +22,11 @@ export interface MapRow {
   headerStatus: Exclude<ReadStatus, 'skipped'>;
 }
 
+/** Troubleshooting steps the status line can offer behind a Help button. */
+export type HelpTopic = 'none' | 'device-busy';
+
 export const statusMessage = signal('');
+export const statusHelpTopic = signal<HelpTopic>('none');
 export const statusKind = signal<'none' | 'notice' | 'error'>('none');
 export const statusClassName = computed(() => statusKind.value === 'none' ? 'status' : `status ${statusKind.value}`);
 export const isBusy = signal(false);
@@ -44,6 +48,12 @@ export const stagedMaps = signal<StagedMap[]>([]);
 export function setStatus(message: string, kind: 'none' | 'notice' | 'error' = 'none'): void {
   statusMessage.value = message;
   statusKind.value = kind;
+  statusHelpTopic.value = 'none';
+}
+
+export function setErrorStatusWithHelp(message: string, helpTopic: HelpTopic): void {
+  setStatus(message, 'error');
+  statusHelpTopic.value = helpTopic;
 }
 
 export function setScanProgress(completed: number, total: number): void {
